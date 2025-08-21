@@ -13,7 +13,7 @@ A simple web-based chatbot that uses a Retrieval-Augmented Generation (RAG) pipe
 1.  **Clone the repository:**
 
     ```bash
-    git clone https://github.com/your-username/flask-pdf-ai-chatbot.git
+    git clone https://github.com/shahaj90/flask-pdf-ai-chatbot.git
     cd flask-pdf-ai-chatbot
     ```
 
