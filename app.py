@@ -35,7 +35,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 class GeminiWrapper(BaseChatModel):
     # Use pydantic Field to declare the attributes
-    model_name: str = Field(default="gemini-1.5-flash-latest")
+    model_name: str = Field(default="gemini-2.0-flash")
     model: Any = Field(default=None)
 
     def __init__(self, **kwargs: Any):
@@ -103,10 +103,14 @@ def setup_rag_pipeline():
     llm = GeminiWrapper()
 
     retriever = vector_store.as_retriever()
+    from langchain.retrievers.multi_query import MultiQueryRetriever
+    multi_query_retriever = MultiQueryRetriever.from_llm(
+        retriever=retriever, llm=llm
+    )
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
-        retriever=retriever,
+        retriever=multi_query_retriever,
         return_source_documents=False,
         chain_type_kwargs={"prompt": PROMPT}
     )
