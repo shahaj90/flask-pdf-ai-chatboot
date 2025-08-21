@@ -129,6 +129,10 @@
             appendMessage('user', message);
             userInput.value = '';
 
+            const botMessageDiv = document.createElement('div');
+            botMessageDiv.classList.add('message', 'bot-message');
+            chatBox.appendChild(botMessageDiv);
+
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
@@ -139,14 +143,23 @@
                 });
 
                 if (response.ok) {
-                    const data = await response.json();
-                    appendMessage('bot', data.response);
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullResponse = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        fullResponse += decoder.decode(value, { stream: true });
+                        botMessageDiv.textContent = fullResponse;
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
                 } else {
-                    appendMessage('bot', 'Sorry, something went wrong.');
+                    botMessageDiv.textContent = 'Sorry, something went wrong.';
                 }
             } catch (error) {
                 console.error('Error:', error);
-                appendMessage('bot', 'An error occurred while connecting to the server.');
+                botMessageDiv.textContent = 'An error occurred while connecting to the server.';
             }
         }
 

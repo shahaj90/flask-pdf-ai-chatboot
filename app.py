@@ -1,21 +1,18 @@
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify
-
-# LangChain and RAG-specific imports
+from flask import Flask, render_template, request, Response
+from langchain.prompts import PromptTemplate
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-
-# Imports for LangChain compatibility
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from typing import Any
+from typing import Any, Iterator
 from pydantic import Field
 
 app = Flask(__name__)
@@ -34,16 +31,14 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 
 class GeminiWrapper(BaseChatModel):
-    # Use pydantic Field to declare the attributes
     model_name: str = Field(default="gemini-2.0-flash")
     model: Any = Field(default=None)
 
     def __init__(self, **kwargs: Any):
-        super().__init__(**kwargs)
+        super().__init__(streaming=True, **kwargs)
         self.model = genai.GenerativeModel(self.model_name)
 
     def _generate(self, messages: list[BaseMessage], stop=None) -> ChatResult:
-        # Convert LangChain messages to a string format for Gemini's API
         prompt = ""
         for message in messages:
             if isinstance(message, HumanMessage):
@@ -54,6 +49,18 @@ class GeminiWrapper(BaseChatModel):
         response = self.model.generate_content(prompt)
         ai_message = AIMessage(content=response.text)
         return ChatResult(generations=[ChatGeneration(message=ai_message)])
+
+    def _stream(self, messages: list[BaseMessage], stop=None) -> Iterator[ChatGeneration]:
+        prompt = ""
+        for message in messages:
+            if isinstance(message, HumanMessage):
+                prompt += f"Human: {message.content}\n"
+            elif isinstance(message, AIMessage):
+                prompt += f"AI: {message.content}\n"
+
+        responses = self.model.generate_content(prompt, stream=True)
+        for response in responses:
+            yield ChatGeneration(message=AIMessage(content=response.text))
 
     @property
     def _llm_type(self) -> str:
@@ -94,26 +101,18 @@ def setup_rag_pipeline():
     prompt_template = """
     You are an AI assistant that answers questions based on the provided context only.
     Context: {context}
-    Question: {question}
+    Question: {input}
     Answer:
     """
     PROMPT = PromptTemplate(template=prompt_template,
-                            input_variables=["context", "question"])
+                            input_variables=["context", "input"])
 
     llm = GeminiWrapper()
 
     retriever = vector_store.as_retriever()
-    from langchain.retrievers.multi_query import MultiQueryRetriever
-    multi_query_retriever = MultiQueryRetriever.from_llm(
-        retriever=retriever, llm=llm
-    )
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=multi_query_retriever,
-        return_source_documents=False,
-        chain_type_kwargs={"prompt": PROMPT}
-    )
+
+    question_answer_chain = create_stuff_documents_chain(llm, PROMPT)
+    qa_chain = create_retrieval_chain(retriever, question_answer_chain)
 
     return qa_chain
 
@@ -131,20 +130,26 @@ def index():
 @app.route('/chat', methods=['POST'])
 def chat():
     user_message = request.json.get('message')
+    from flask import jsonify
     if not user_message:
         return jsonify({"error": "No message provided"}), 400
 
     print(f"User message: {user_message}")
 
-    try:
-        response = qa_chain.invoke({"query": user_message})
-        bot_response = response.get(
-            'result', 'Sorry, I could not generate a response.')
-        print(f"Bot response: {bot_response}")
-        return jsonify({"response": bot_response})
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"error": "An internal error occurred."}), 500
+    def generate():
+        try:
+            for chunk in qa_chain.stream({"input": user_message}):
+                if 'answer' in chunk:
+                    # Ensure we are yielding the text content
+                    if hasattr(chunk['answer'], 'content'):
+                        yield chunk['answer'].content
+                    else:
+                        # Fallback if it's already a string
+                        yield chunk['answer']
+        except Exception as e:
+            print(f"An error occurred during streaming: {e}")
+
+    return Response(generate(), mimetype='text/plain')
 
 
 if __name__ == '__main__':
