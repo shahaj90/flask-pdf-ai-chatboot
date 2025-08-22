@@ -20,7 +20,7 @@ A simple web-based chatbot that uses a Retrieval-Augmented Generation (RAG) pipe
 2.  **Create and activate a virtual environment:**
 
     ```bash
-    python -m venv .venv
+    python3 -m venv .venv
     source .venv/bin/activate
     ```
 
