@@ -9,9 +9,6 @@ __pycache__/
 # ChromaDB
 chroma_db/
 
-# Data files
-data/
-
 # IDE specific files
 .idea/
 .vscode/

@@ -47,7 +47,7 @@ A simple web-based chatbot that uses a Retrieval-Augmented Generation (RAG) pipe
 1.  **Run the application:**
 
     ```bash
-    python app.py
+    python3 app.py
     ```
 
 2.  **Open your browser:**
